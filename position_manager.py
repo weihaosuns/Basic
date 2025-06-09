@@ -68,7 +68,7 @@ class PositionManager:
                 symbol=self.symbol,
                 side=side,
                 type="MARKET",
-                quantity=round(qty, 4)
+                quantity=round(qty, 3)
             )
             logging.info(f"Closed position: {side} {qty:.4f} {self.symbol}")
 
@@ -85,7 +85,7 @@ class PositionManager:
                 symbol=self.symbol,
                 side=side,
                 type="MARKET",
-                quantity=round(quantity, 4)
+                quantity=round(quantity, 3)
             )
             logging.info(f"Opened {side} position with {quantity:.4f} {self.symbol}")
 
