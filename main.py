@@ -61,7 +61,7 @@ def main():
             time.sleep(1)
     except KeyboardInterrupt:
         ws.stop()
-        PositionManager.shutdown()
+        PositionManager.shutdown(self)
         logging.info("Stopped WebSocket and closed all positions.")
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import sys
 import logging
 from binance.um_futures import UMFutures
 from config import (
@@ -123,7 +124,7 @@ class PositionManager:
         if self.max_drawdown_triggered or self.loss_streak >= self.max_loss_streak:
             logging.warning("Risk limits breached. Closing all positions and orders...")
             PositionManager.shutdown(self)
-            return
+            sys.exit("Risk limits breached. Program terminated.")
 
         wallet = self.get_wallet_balance()
         usdt_alloc = wallet * ALLOCATION_PCT

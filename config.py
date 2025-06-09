@@ -11,7 +11,7 @@ ALLOCATION_PCT = 0.05       # 5% of wallet balance
 STOP_LOSS_PCT = 0.01        # 1% SL
 TAKE_PROFIT_PCT = 0.02      # 2% TP
 MAX_POSITION_USD = 750      # 5% of 15,000
-MAX_CONSECUTIVE_LOSSES = 5  # 5 SL = 5%
+MAX_CONSECUTIVE_LOSSES = 4  # 5 SL = 5%
 MAX_DRAWDOWN_PCT = 0.05     # 5% per day
 
 extracted_weights = [{'buy': np.float64(0.03244280654346815),
