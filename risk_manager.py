@@ -1,54 +1,90 @@
 import logging
-import time
-
 
 class RiskManager:
+    """
+    Manages risk limits: max position size, max consecutive losses, and max drawdown.
+    Tracks loss streak and drawdown status.
+    """
+
     def __init__(self, max_position_usd, max_consecutive_losses, max_drawdown_pct, starting_balance_usd):
         self.max_position_usd = max_position_usd
         self.max_consecutive_losses = max_consecutive_losses
         self.max_drawdown_pct = max_drawdown_pct
         self.starting_balance_usd = starting_balance_usd
 
-        self.current_drawdown_pct = 0
+        self.loss_streak = 0
+        self.max_drawdown_triggered = False
+
         self.peak_balance = starting_balance_usd
-        self.consecutive_losses = {}
+        self.current_drawdown_pct = 0.0
+
         self.open_positions = {}
 
-    def can_open_position(self, symbol, current_balance):
-        # Check drawdown
-        self.peak_balance = max(self.peak_balance, current_balance)
-        self.current_drawdown_pct = 100.0 * (self.peak_balance - current_balance) / self.peak_balance
+
+    def update_balance(self, current_balance):
+        """Update peak balance and current drawdown percentage."""
+        if current_balance > self.peak_balance:
+            self.peak_balance = current_balance
+
+        if self.peak_balance > 0:
+            self.current_drawdown_pct = 100 * (self.peak_balance - current_balance) / self.peak_balance
+        else:
+            self.current_drawdown_pct = 0
+
+    def can_open_position(self, symbol, current_balance, position_usd):
+        """
+        Check if a new position can be opened considering drawdown,
+        max position size, and consecutive losses.
+        """
+        self.update_balance(current_balance)
 
         if self.current_drawdown_pct > self.max_drawdown_pct:
             logging.warning(f"Drawdown {self.current_drawdown_pct:.2f}% exceeds max allowed {self.max_drawdown_pct}%")
+            self.max_drawdown_triggered = True
             return False
 
-        # Check max position
-        if symbol in self.open_positions:
-            position_usd = self.open_positions[symbol]["usd_value"]
-            if position_usd >= self.max_position_usd:
-                logging.warning(f"Symbol {symbol} position ${position_usd:.2f} exceeds max ${self.max_position_usd}")
-                return False
+        if position_usd > self.max_position_usd:
+            logging.warning(f"Position size ${position_usd:.2f} exceeds max allowed ${self.max_position_usd}")
+            return False
 
-        # Check consecutive losses
-        if self.consecutive_losses.get(symbol, 0) >= self.max_consecutive_losses:
-            logging.warning(f"{symbol} reached max consecutive losses ({self.max_consecutive_losses})")
+        if self.loss_streak >= self.max_consecutive_losses:
+            logging.warning(f"Max consecutive losses reached: {self.loss_streak} >= {self.max_consecutive_losses}")
             return False
 
         return True
 
-    def record_position(self, symbol, usd_value):
-        self.open_positions[symbol] = {
-            "usd_value": usd_value,
-            "entry_time": time.time()
-        }
+    def track_risk_after_trade(self, wallet_balance, pnl_usd):
+        """
+        Update loss streak and drawdown status after a trade.
+        Call this after closing or settling a position.
+        """
 
-    def close_position(self, symbol, pnl_usd):
-        # Update drawdown tracking
         if pnl_usd < 0:
-            self.consecutive_losses[symbol] = self.consecutive_losses.get(symbol, 0) + 1
+            self.loss_streak += 1
+            logging.warning(f"Loss streak incremented: {self.loss_streak}")
         else:
-            self.consecutive_losses[symbol] = 0
+            if self.loss_streak > 0:
+                logging.info(f"Loss streak reset from {self.loss_streak} to 0")
+            self.loss_streak = 0
 
-        if symbol in self.open_positions:
-            del self.open_positions[symbol]
+        pnl_pct = 100 * (wallet_balance - self.starting_balance_usd) / self.starting_balance_usd
+        self.update_balance(wallet_balance)
+
+        if pnl_pct <= -self.max_drawdown_pct:
+            logging.critical(f"Drawdown limit breached: {pnl_pct}%")
+            self.max_drawdown_triggered = True
+
+    def reset(self):
+        """Reset risk state to initial."""
+        self.loss_streak = 0
+        self.max_drawdown_triggered = False
+        self.current_drawdown_pct = 0.0
+        self.peak_balance = self.starting_balance_usd
+        self.open_positions.clear()
+
+    @property
+    def is_drawdown_exceeded(self):
+        return self.max_drawdown_triggered
+
+    def has_max_losses(self):
+        return self.loss_streak >= self.max_consecutive_losses

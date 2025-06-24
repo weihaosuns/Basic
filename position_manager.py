@@ -1,14 +1,15 @@
-import sys
 import logging
 from binance.um_futures import UMFutures
 from config import (
     ALLOCATION_PCT,
     STOP_LOSS_PCT,
-    TAKE_PROFIT_PCT,
+    # TAKE_PROFIT_PCT,
     MAX_POSITION_USD,
     MAX_CONSECUTIVE_LOSSES,
     MAX_DRAWDOWN_PCT,
 )
+from risk_manager import RiskManager
+
 
 class PositionManager:
     def __init__(self, client: UMFutures, symbol: str):
@@ -16,15 +17,15 @@ class PositionManager:
         self.symbol = symbol.upper()
         self.position = 0.0
         self.entry_price = 0.0
-        self.leverage = 20
+        self.leverage = 1
 
-        # Risk manager state
-        self.starting_balance = self.get_wallet_balance()
-        self.max_drawdown_pct = MAX_DRAWDOWN_PCT
-        self.max_position_usd = MAX_POSITION_USD
-        self.max_loss_streak = MAX_CONSECUTIVE_LOSSES
-        self.loss_streak = 0
-        self.max_drawdown_triggered = False
+        starting_balance = self.get_wallet_balance()
+        self.risk_manager = RiskManager(
+            max_position_usd=MAX_POSITION_USD,
+            max_consecutive_losses=MAX_CONSECUTIVE_LOSSES,
+            max_drawdown_pct=MAX_DRAWDOWN_PCT,
+            starting_balance_usd=starting_balance
+        )
 
     def get_wallet_balance(self):
         try:
@@ -72,7 +73,9 @@ class PositionManager:
             )
             logging.info(f"Closed position: {side} {qty:.4f} {self.symbol}")
 
-            self.track_risk_after_trade()
+            pnl = (price - self.entry_price) * self.position  # or appropriate direction
+            self.risk_manager.track_risk_after_trade(self.get_wallet_balance(), pnl)
+
         except Exception as e:
             logging.error(f"Failed to close position: {e}")
 
@@ -89,9 +92,9 @@ class PositionManager:
             )
             logging.info(f"Opened {side} position with {quantity:.4f} {self.symbol}")
 
-            # SL/TP
+            # SL/TP prices
             sl_price = price * (1 - STOP_LOSS_PCT) if side == "BUY" else price * (1 + STOP_LOSS_PCT)
-            tp_price = price * (1 + TAKE_PROFIT_PCT) if side == "BUY" else price * (1 - TAKE_PROFIT_PCT)
+            # tp_price = price * (1 + TAKE_PROFIT_PCT) if side == "BUY" else price * (1 - TAKE_PROFIT_PCT)
 
             self.client.new_order(
                 symbol=self.symbol,
@@ -101,16 +104,18 @@ class PositionManager:
                 closePosition=True,
                 timeInForce="GTC"
             )
-            self.client.new_order(
-                symbol=self.symbol,
-                side=opposite,
-                type="TAKE_PROFIT_MARKET",
-                stopPrice=round(tp_price, 2),
-                closePosition=True,
-                timeInForce="GTC"
-            )
+            # self.client.new_order(
+            #     symbol=self.symbol,
+            #     side=opposite,
+            #     type="TAKE_PROFIT_MARKET",
+            #     stopPrice=round(tp_price, 2),
+            #     closePosition=True,
+            #     timeInForce="GTC"
+            # )
 
-            logging.info(f"SL at {sl_price:.2f}, TP at {tp_price:.2f}")
+            logging.info(f"SL at {sl_price:.2f}")
+            # , TP at {tp_price:.2f}")
+
         except Exception as e:
             logging.error(f"Failed to open position: {e}")
 
@@ -118,51 +123,42 @@ class PositionManager:
         self.update_position_info()
 
         if signal == "hold":
-            logging.warning("Signal hold. No action taken.")
+            logging.info("Signal is hold. No action taken.")
             return
-
-        if self.max_drawdown_triggered or self.loss_streak >= self.max_loss_streak:
-            logging.warning("Risk limits breached. Closing all positions and orders...")
-            PositionManager.shutdown(self)
-            sys.exit("Risk limits breached. Program terminated.")
 
         wallet = self.get_wallet_balance()
-        usdt_alloc = wallet * ALLOCATION_PCT
-        qty = usdt_alloc / price
-
-        if usdt_alloc > self.max_position_usd:
-            logging.warning(f"Position too large: ${usdt_alloc:.2f} > MAX ${self.max_position_usd}. Skipping trade.")
+        if price == 0:
+            logging.error("Price is zero, cannot calculate quantity.")
             return
 
-        logging.info(f"Signal: {signal.upper()}, Alloc: ${usdt_alloc:.2f}, Qty: {qty:.4f} {self.symbol}")
+        usdt_alloc = min(wallet * ALLOCATION_PCT, MAX_POSITION_USD)
+        qty = usdt_alloc / price
+
+        # Check risk limits before proceeding
+        if not self.risk_manager.can_open_position(self.symbol, wallet, usdt_alloc):
+            logging.warning("Risk limits prevent trade. Skipping.")
+            return
+
+        logging.info(f"Signal: {signal.upper()}, Allocation: ${usdt_alloc:.2f}, Quantity: {qty:.4f} {self.symbol}")
 
         current_side = "buy" if self.position > 0 else ("sell" if self.position < 0 else None)
-        if signal == current_side:
-            logging.info("Already in same direction. No action taken.")
+        if signal.lower() == current_side:
+            logging.info("Already in the same direction. No action taken.")
             return
 
         if self.position != 0:
-            logging.info("Reversing position...")
+            logging.info("Reversing position by closing existing position...")
             self.close_position()
 
         self.open_position(signal.upper(), qty, price)
 
-    def track_risk_after_trade(self):
-        """Update drawdown and loss streak."""
-        wallet = self.get_wallet_balance()
-        pnl_pct = (wallet - self.starting_balance) / self.starting_balance
-
-        if wallet < self.starting_balance:
-            self.loss_streak += 1
-            logging.warning(f"Loss Streak: {self.loss_streak}")
-        else:
-            self.loss_streak = 0
-
-        if pnl_pct <= -self.max_drawdown_pct:
-            logging.critical(f"Drawdown limit breached: {pnl_pct:.2%}")
-            self.max_drawdown_triggered = True
+        if self.risk_manager.is_drawdown_exceeded or self.risk_manager.has_max_losses:
+            logging.warning("Post-trade: risk limits breached. Exiting.")
+            self.shutdown()
+            raise RuntimeError("Risk limits breached. Program terminated.")
 
     def shutdown(self):
         logging.info("Shutting down: closing all positions and cancelling orders...")
         self.cancel_open_conditional_orders()
         self.close_position()
+        raise SystemExit("Risk limits breached. Shutting down.")

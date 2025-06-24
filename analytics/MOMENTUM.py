@@ -1,195 +1,164 @@
-def sma_crossover_strategy(candles, short_window=10, long_window=50):
-    closes = [c["close"] for c in list(candles)]
-    short_sma = sum(closes[-short_window:]) / short_window
-    long_sma = sum(closes[-long_window:]) / long_window
+import numpy as np
+import pandas as pd
 
-    prev_short_sma = sum(closes[-short_window-1:-1]) / short_window
-    prev_long_sma = sum(closes[-long_window-1:-1]) / long_window
+def sma_crossover_strategy(candles, short_window=1, long_window=3):
+    if len(candles) < long_window + 1:
+        return {"signal": "hold"}
+
+    closes = np.array([c["close"] for c in candles])
+
+    short_sma = closes[-short_window:].mean()
+    long_sma = closes[-long_window:].mean()
+    prev_short_sma = closes[-short_window-1:-1].mean()
+    prev_long_sma = closes[-long_window-1:-1].mean()
 
     if prev_short_sma <= prev_long_sma and short_sma > long_sma:
-        return {"signal": "buy", "confidence": 0.9}
+        return {"signal": "buy"}
     elif prev_short_sma >= prev_long_sma and short_sma < long_sma:
-        return {"signal": "sell", "confidence": 0.9}
+        return {"signal": "sell"}
     else:
-        return {"signal": "hold", "confidence": 0.0}
+        return {"signal": "hold"}
 
-def roc_momentum_strategy(candles, period=14):
-    closes = [c["close"] for c in list(candles)]
-    roc_current = (closes[-1] - closes[-period-1]) / closes[-period-1]
-    roc_prev = (closes[-2] - closes[-period-2]) / closes[-period-2]
 
-    if roc_current > 0 and roc_current > roc_prev:
-        return {"signal": "buy", "confidence": abs(roc_current)}
-    elif roc_current < 0 and roc_current < roc_prev:
-        return {"signal": "sell", "confidence": abs(roc_current)}
+def roc_crossover_strategy(candles, short_window=2, long_window=9):
+    if len(candles) < long_window + 1:
+        return {"signal": "hold"}
+
+    closes = np.array([c["close"] for c in candles])
+
+    short_roc = (closes[-1] - closes[-1 - short_window]) / closes[-1 - short_window]
+    long_roc = (closes[-1] - closes[-1 - long_window]) / closes[-1 - long_window]
+
+    prev_short_roc = (closes[-2] - closes[-2 - short_window]) / closes[-2 - short_window]
+    prev_long_roc = (closes[-2] - closes[-2 - long_window]) / closes[-2 - long_window]
+
+    if prev_short_roc <= prev_long_roc and short_roc > long_roc:
+        return {"signal": "buy"}
+    elif prev_short_roc >= prev_long_roc and short_roc < long_roc:
+        return {"signal": "sell"}
     else:
-        return {"signal": "hold", "confidence": 0.0}
+        return {"signal": "hold"}
 
-def ema(prices, period):
-    k = 2 / (period + 1)
-    ema_values = []
-    ema_values.append(prices[0])  # first EMA is first price
-    for price in prices[1:]:
-        ema_prev = ema_values[-1]
-        ema_new = price * k + ema_prev * (1 - k)
-        ema_values.append(ema_new)
-    return ema_values
+def ema_crossover_strategy(candles, short_window=1, long_window=3):
+    if len(candles) < long_window + 2:  # need 2 extra for prev EMA
+        return {"signal": "hold"}
 
-def ema_momentum_strategy(candles, short_period=12, long_period=26):
-    closes = [c["close"] for c in list(candles)]
-    short_ema = ema(closes, short_period)[-1]
-    long_ema = ema(closes, long_period)[-1]
+    closes = pd.Series([c["close"] for c in candles])
 
-    if short_ema > long_ema:
-        return {"signal": "buy", "confidence": 0.9}
-    elif short_ema < long_ema:
-        return {"signal": "sell", "confidence": 0.9}
+    def compute_ema(series, span):
+        return series.ewm(span=span, adjust=False).mean().iloc[-1]
+
+    short_ema = compute_ema(closes, short_window)
+    long_ema = compute_ema(closes, long_window)
+    prev_short_ema = compute_ema(closes[:-1], short_window)
+    prev_long_ema = compute_ema(closes[:-1], long_window)
+
+    if prev_short_ema <= prev_long_ema and short_ema > long_ema:
+        return {"signal": "buy"}
+    elif prev_short_ema >= prev_long_ema and short_ema < long_ema:
+        return {"signal": "sell"}
     else:
-        return {"signal": "hold", "confidence": 0.0}
+        return {"signal": "hold"}
 
-def macd_strategy(candles, fast_period=12, slow_period=26, signal_period=9):
-    closes = [c["close"] for c in list(candles)]
+def macd_crossover_strategy(candles, fast=1, slow=5, signal_len=5):
+    if len(candles) < slow + signal_len + 1:
+        return {"signal": "hold"}
 
-    def ema(prices, period):
-        k = 2 / (period + 1)
-        ema_values = [prices[0]]
-        for price in prices[1:]:
-            ema_values.append(price * k + ema_values[-1] * (1 - k))
-        return ema_values
+    closes = pd.Series([c["close"] for c in candles])
 
-    fast_ema = ema(closes, fast_period)
-    slow_ema = ema(closes, slow_period)
-    macd_line = [f - s for f, s in zip(fast_ema[-len(slow_ema):], slow_ema)]
-    signal_line = ema(macd_line, signal_period)
+    ema_fast = closes.ewm(span=fast, adjust=False).mean()
+    ema_slow = closes.ewm(span=slow, adjust=False).mean()
+    macd_line = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=signal_len, adjust=False).mean()
 
-    if len(macd_line) < 2 or len(signal_line) < 2:
-        return {"signal": "hold", "confidence": 0.0}
+    curr_macd = macd_line.iloc[-1]
+    curr_signal = signal_line.iloc[-1]
+    prev_macd = macd_line.iloc[-2]
+    prev_signal = signal_line.iloc[-2]
 
-    # MACD crossover
-    if macd_line[-2] <= signal_line[-2] and macd_line[-1] > signal_line[-1]:
-        return {"signal": "buy", "confidence": abs(macd_line[-1] - signal_line[-1])}
-    elif macd_line[-2] >= signal_line[-2] and macd_line[-1] < signal_line[-1]:
-        return {"signal": "sell", "confidence": abs(macd_line[-1] - signal_line[-1])}
+    if prev_macd <= prev_signal and curr_macd > curr_signal:
+        return {"signal": "buy"}
+    elif prev_macd >= prev_signal and curr_macd < curr_signal:
+        return {"signal": "sell"}
     else:
-        return {"signal": "hold", "confidence": 0.0}
+        return {"signal": "hold"}
 
-def rsi_strategy(candles, period=14, overbought=70, oversold=30):
-    closes = [c["close"] for c in list(candles)]
+def rsi_crossover_strategy(candles, short_window=2, long_window=21):
+    if len(candles) < long_window + 2:
+        return {"signal": "hold"}
 
-    gains = []
-    losses = []
+    closes = pd.Series([c["close"] for c in candles])
+    delta = closes.diff()
 
-    for i in range(1, len(closes)):
-        diff = closes[i] - closes[i - 1]
-        gains.append(max(diff, 0))
-        losses.append(abs(min(diff, 0)))
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
 
-    if len(gains) < period:
-        return {"signal": "hold", "confidence": 0.0}
-
-    avg_gain = sum(gains[-period:]) / period
-    avg_loss = sum(losses[-period:]) / period
-
-    if avg_loss == 0:
-        rsi = 100
-    else:
+    def compute_rsi(series_gain, series_loss, span):
+        avg_gain = series_gain.ewm(span=span, adjust=False).mean()
+        avg_loss = series_loss.ewm(span=span, adjust=False).mean()
         rs = avg_gain / avg_loss
-        rsi = 100 - (100 / (1 + rs))
+        rs = rs.replace([np.inf, -np.inf], np.nan).fillna(0)
+        return 100 - (100 / (1 + rs))
 
-    if rsi > overbought:
-        # Sell signal when overbought
-        confidence = (rsi - overbought) / (100 - overbought)
-        return {"signal": "sell", "confidence": confidence}
-    elif rsi < oversold:
-        # Buy signal when oversold
-        confidence = (oversold - rsi) / oversold
-        return {"signal": "buy", "confidence": confidence}
+    rsi_short = compute_rsi(gain, loss, short_window)
+    rsi_long = compute_rsi(gain, loss, long_window)
+
+    curr_short = rsi_short.iloc[-1]
+    curr_long = rsi_long.iloc[-1]
+    prev_short = rsi_short.iloc[-2]
+    prev_long = rsi_long.iloc[-2]
+
+    if prev_short <= prev_long and curr_short > curr_long:
+        return {"signal": "buy"}
+    elif prev_short >= prev_long and curr_short < curr_long:
+        return {"signal": "sell"}
     else:
-        return {"signal": "hold", "confidence": 0.0}
+        return {"signal": "hold"}
 
-import math
 
-def bollinger_bands_strategy(candles, window=20, num_std=2):
-    closes = [c["close"] for c in list(candles)]
-    if len(closes) < window:
-        return {"signal": "hold", "confidence": 0.0}
+def bollinger_band_strategy(candles, window=3, stddev=0.1):
+    if len(candles) < window:
+        return {"signal": "hold"}
 
-    sma = sum(closes[-window:]) / window
-    variance = sum((x - sma) ** 2 for x in closes[-window:]) / window
-    std_dev = math.sqrt(variance)
+    closes = pd.Series([c["close"] for c in candles])
 
-    upper_band = sma + num_std * std_dev
-    lower_band = sma - num_std * std_dev
-    last_close = closes[-1]
+    sma = closes.rolling(window=window).mean()
+    std = closes.rolling(window=window).std()
 
-    # If price breaks above upper band -> strong momentum up (buy)
-    if last_close > upper_band:
-        confidence = (last_close - upper_band) / upper_band
-        return {"signal": "buy", "confidence": min(confidence, 1.0)}
+    upper = sma + stddev * std
+    lower = sma - stddev * std
 
-    # If price breaks below lower band -> strong momentum down (sell)
-    elif last_close < lower_band:
-        confidence = (lower_band - last_close) / lower_band
-        return {"signal": "sell", "confidence": min(confidence, 1.0)}
+    price = closes.iloc[-1]
+    upper_band = upper.iloc[-1]
+    lower_band = lower.iloc[-1]
 
+    if price < lower_band:
+        return {"signal": "sell"}  # Price below lower band — momentum sell
+    elif price > upper_band:
+        return {"signal": "buy"}  # Price above upper band — momentum buy
     else:
-        return {"signal": "hold", "confidence": 0.0}
+        return {"signal": "hold"}
 
-def momentum_with_volume_strategy(candles, momentum_period=20, volume_period=20):
-    closes = [c["close"] for c in list(candles)]
-    volumes = [c["volume"] for c in list(candles)]
+def momentum_volume_strategy(candles, momentum_window=51, volume_window=93):
+    if len(candles) < max(momentum_window, volume_window) + 1:
+        return {"signal": "hold"}
 
-    if len(closes) < momentum_period or len(volumes) < volume_period:
-        return {"signal": "hold", "confidence": 0.0}
+    df = pd.DataFrame(candles)
+    closes = df["close"]
+    volumes = df["volume"]
 
-    price_change = closes[-1] - closes[-momentum_period]
-    avg_volume = sum(volumes[-volume_period:]) / volume_period
-    current_volume = volumes[-1]
+    momentum = closes.diff(periods=momentum_window).iloc[-1]
+    avg_volume = volumes.rolling(window=volume_window).mean().iloc[-1]
+    current_volume = volumes.iloc[-1]
 
-    volume_conf = current_volume / avg_volume if avg_volume > 0 else 0
+    if avg_volume == 0 or pd.isna(avg_volume):
+        return {"signal": "hold"}
 
-    if price_change > 0 and volume_conf > 1.0:
-        return {"signal": "buy", "confidence": min(volume_conf, 2.0)/2}  # confidence capped at 1
-    elif price_change < 0 and volume_conf > 1.0:
-        return {"signal": "sell", "confidence": min(volume_conf, 2.0)/2}
+    volume_conf = current_volume / avg_volume
+
+    if momentum > 0 and volume_conf > 1.0:
+        return {"signal": "sell"}
+    elif momentum < 0 and volume_conf > 1.0:
+        return {"signal": "buy"}
     else:
-        return {"signal": "hold", "confidence": 0.0}
-
-from collections import Counter
-
-def build_markov_chain_from_prices(candles):
-    states = []
-    for i in range(1, len(candles)):
-        if candles[i]["close"] > candles[i-1]["close"]:
-            states.append("buy")
-        elif candles[i]["close"] < candles[i-1]["close"]:
-            states.append("sell")
-        else:
-            states.append(states[-1] if states else "buy")  # carry last state or default to buy
-
-    # Build transition counts
-    transitions = Counter()
-    for i in range(1, len(states)):
-        prev_state = states[i-1]
-        curr_state = states[i]
-        transitions[(prev_state, curr_state)] += 1
-
-    # Convert to transition probabilities
-    matrix = {"buy": {"buy": 0.0, "sell": 0.0}, "sell": {"buy": 0.0, "sell": 0.0}}
-    for from_state in ["buy", "sell"]:
-        total = sum(transitions[(from_state, to)] for to in ["buy", "sell"])
-        if total > 0:
-            for to_state in ["buy", "sell"]:
-                matrix[from_state][to_state] = transitions[(from_state, to_state)] / total
-
-    return matrix, states[-1]  # last state is current momentum direction
-
-def markov_price_strategy(candles):
-    matrix, last_state = build_markov_chain_from_prices(candles)
-    probs = matrix[last_state]
-    if probs["buy"] > probs["sell"]:
-        return {"signal": "buy", "confidence": probs["buy"]}
-    elif probs["sell"] > probs["buy"]:
-        return {"signal": "sell", "confidence": probs["sell"]}
-    else:
-        return {"signal": "hold", "confidence": 0.0}
+        return {"signal": "hold"}

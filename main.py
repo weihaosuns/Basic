@@ -1,17 +1,16 @@
 import time
 import logging
-from config import SYMBOL, INTERVAL, weights, API_KEY, API_SECRET, BASE_URL
+from config import SYMBOL, INTERVAL, API_KEY, API_SECRET, BASE_URL
 from data.REST import RestDataFetcher
 from data.WEBSOCKET import BinanceWebSocket
 from analytics.MOMENTUM import (
     sma_crossover_strategy,
-    ema_momentum_strategy,
-    roc_momentum_strategy,
-    macd_strategy,
-    rsi_strategy,
-    bollinger_bands_strategy,
-    momentum_with_volume_strategy,
-    markov_price_strategy,
+    roc_crossover_strategy,
+    ema_crossover_strategy,
+    macd_crossover_strategy,
+    rsi_crossover_strategy,
+    bollinger_band_strategy,
+    momentum_volume_strategy,
 )
 from analytics.AGGREGATOR import aggregate_signals
 from position_manager import PositionManager
@@ -37,15 +36,14 @@ def main():
             # trigger analytics
             strategies = [
                 sma_crossover_strategy,
-                roc_momentum_strategy,
-                ema_momentum_strategy,
-                macd_strategy,
-                rsi_strategy,
-                bollinger_bands_strategy,
-                momentum_with_volume_strategy,
-                markov_price_strategy,
+                roc_crossover_strategy,
+                ema_crossover_strategy,
+                macd_crossover_strategy,
+                rsi_crossover_strategy,
+                bollinger_band_strategy,
+                momentum_volume_strategy,
             ]
-            agg_signal = aggregate_signals(candles, strategies, weights)
+            agg_signal = aggregate_signals(candles, strategies, weights=None)
             logging.info(f"New Candle Signal: {agg_signal}")
 
             price = candle["close"]
@@ -59,10 +57,17 @@ def main():
     try:
         while True:
             time.sleep(1)
+
     except KeyboardInterrupt:
-        ws.stop()
+        logging.info("Interrupted by user.")
+        ws.stop(force=True)
         position_manager.shutdown()
         logging.info("Stopped WebSocket and closed all positions.")
+
+    except SystemExit as e:
+        logging.info(f"System exiting: {e}")
+        ws.stop(force=True)
+
 
 if __name__ == "__main__":
     main()
