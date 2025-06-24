@@ -10,6 +10,7 @@ from config import (
 )
 from risk_manager import RiskManager
 
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(message)s")
 
 class PositionManager:
     def __init__(self, client: UMFutures, symbol: str):
@@ -73,8 +74,7 @@ class PositionManager:
             )
             logging.info(f"Closed position: {side} {qty:.4f} {self.symbol}")
 
-            pnl = (price - self.entry_price) * self.position  # or appropriate direction
-            self.risk_manager.track_risk_after_trade(self.get_wallet_balance(), pnl)
+            self.risk_manager.track_risk_after_trade(self.get_wallet_balance())
 
         except Exception as e:
             logging.error(f"Failed to close position: {e}")
@@ -152,7 +152,7 @@ class PositionManager:
 
         self.open_position(signal.upper(), qty, price)
 
-        if self.risk_manager.is_drawdown_exceeded or self.risk_manager.has_max_losses:
+        if self.risk_manager.is_drawdown_exceeded or self.risk_manager.has_max_losses():
             logging.warning("Post-trade: risk limits breached. Exiting.")
             self.shutdown()
             raise RuntimeError("Risk limits breached. Program terminated.")

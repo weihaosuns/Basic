@@ -1,5 +1,7 @@
 import time
 import logging
+import sys
+
 from config import SYMBOL, INTERVAL, API_KEY, API_SECRET, BASE_URL
 from data.REST import RestDataFetcher
 from data.WEBSOCKET import BinanceWebSocket
@@ -16,7 +18,7 @@ from analytics.AGGREGATOR import aggregate_signals
 from position_manager import PositionManager
 from binance.um_futures import UMFutures
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(message)s")
 
 def main():
     # Fetch initial historical data
@@ -63,10 +65,12 @@ def main():
         ws.stop(force=True)
         position_manager.shutdown()
         logging.info("Stopped WebSocket and closed all positions.")
+        sys.exit()
 
     except SystemExit as e:
         logging.info(f"System exiting: {e}")
         ws.stop(force=True)
+        sys.exit()
 
 
 if __name__ == "__main__":

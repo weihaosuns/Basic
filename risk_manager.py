@@ -1,4 +1,6 @@
 import logging
+# logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(message)s")
 
 class RiskManager:
     """
@@ -23,8 +25,11 @@ class RiskManager:
 
     def update_balance(self, current_balance):
         """Update peak balance and current drawdown percentage."""
+        logging.debug(f"[Risk] Updating balance: current={current_balance:.2f}, peak={self.peak_balance:.2f}")
+
         if current_balance > self.peak_balance:
             self.peak_balance = current_balance
+            logging.info(f"[Risk] New peak balance set: {current_balance:.2f}")
 
         if self.peak_balance > 0:
             self.current_drawdown_pct = 100 * (self.peak_balance - current_balance) / self.peak_balance
@@ -53,13 +58,16 @@ class RiskManager:
 
         return True
 
-    def track_risk_after_trade(self, wallet_balance, pnl_usd):
+    def track_risk_after_trade(self, wallet_balance):
         """
         Update loss streak and drawdown status after a trade.
         Call this after closing or settling a position.
         """
-
-        if pnl_usd < 0:
+        # logging.debug(f"[Risk] Wallet balance: {wallet_balance:.2f}")
+        # logging.debug(f"[Risk] Starting balance: {self.starting_balance_usd:.2f}")
+        # logging.debug(f"[Risk] Peak balance before update: {self.peak_balance:.2f}")
+        pnl_pct = 100 * (wallet_balance - self.starting_balance_usd) / self.starting_balance_usd
+        if pnl_pct < 0:
             self.loss_streak += 1
             logging.warning(f"Loss streak incremented: {self.loss_streak}")
         else:
@@ -67,8 +75,14 @@ class RiskManager:
                 logging.info(f"Loss streak reset from {self.loss_streak} to 0")
             self.loss_streak = 0
 
-        pnl_pct = 100 * (wallet_balance - self.starting_balance_usd) / self.starting_balance_usd
+
+
         self.update_balance(wallet_balance)
+
+        # logging.debug(f"[Risk] PnL % from start: {pnl_pct}%")
+        # logging.debug(f"[Risk] Peak balance after update: {self.peak_balance:.2f}")
+        # logging.debug(f"[Risk] Current drawdown %: {self.current_drawdown_pct}%")
+        # logging.debug(f"[Risk] Max drawdown %: {self.max_drawdown_pct}%")
 
         if pnl_pct <= -self.max_drawdown_pct:
             logging.critical(f"Drawdown limit breached: {pnl_pct}%")

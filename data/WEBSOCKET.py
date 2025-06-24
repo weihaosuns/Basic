@@ -8,7 +8,8 @@ from datetime import datetime, timezone, timedelta
 from binance.lib.utils import config_logging
 from binance.websocket.um_futures.websocket_client import UMFuturesWebsocketClient
 
-config_logging(logging, logging.DEBUG)
+# config_logging(logging, logging.DEBUG)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(message)s")
 
 class BinanceWebSocket:
     def __init__(
