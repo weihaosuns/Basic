@@ -1,4 +1,5 @@
 import logging
+import os
 from binance.um_futures import UMFutures
 from config import (
     ALLOCATION_PCT,
@@ -155,10 +156,9 @@ class PositionManager:
         if self.risk_manager.is_drawdown_exceeded or self.risk_manager.has_max_losses():
             logging.warning("Post-trade: risk limits breached. Exiting.")
             self.shutdown()
-            raise RuntimeError("Risk limits breached. Program terminated.")
 
     def shutdown(self):
         logging.info("Shutting down: closing all positions and cancelling orders...")
         self.cancel_open_conditional_orders()
         self.close_position()
-        raise SystemExit("Risk limits breached. Shutting down.")
+        os._exit(1)

@@ -1,6 +1,5 @@
 import time
 import logging
-import sys
 
 from config import SYMBOL, INTERVAL, API_KEY, API_SECRET, BASE_URL
 from data.REST import RestDataFetcher
@@ -64,13 +63,6 @@ def main():
         logging.info("Interrupted by user.")
         ws.stop(force=True)
         position_manager.shutdown()
-        logging.info("Stopped WebSocket and closed all positions.")
-        sys.exit()
-
-    except SystemExit as e:
-        logging.info(f"System exiting: {e}")
-        ws.stop(force=True)
-        sys.exit()
 
 
 if __name__ == "__main__":
