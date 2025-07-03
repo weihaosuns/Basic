@@ -10,7 +10,7 @@ class RiskManager:
 
     def __init__(self, max_position_usd, max_consecutive_losses, max_drawdown_pct, starting_balance_usd):
         self.max_position_usd = max_position_usd
-        self.max_consecutive_losses = max_consecutive_losses
+        self.max_consecutive_losses = max_consecutive_losses - 1
         self.max_drawdown_pct = max_drawdown_pct
         self.starting_balance_usd = starting_balance_usd
 
